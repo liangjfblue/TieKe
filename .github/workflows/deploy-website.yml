@@ -1,0 +1,39 @@
+name: Deploy website
+
+on:
+  push:
+    branches: [main]
+    paths: ['website/**', '.github/workflows/deploy-website.yml']
+  workflow_dispatch:
+
+# 服务器每 2 分钟自行 git pull（/opt/tieke-website/sync-website.sh）。
+# 本工作流在推送后等待一轮轮询并验证线上内容，作为部署结果通知。
+
+concurrency:
+  group: website-deploy
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for server pull cycle
+        run: sleep 150
+
+      - name: Verify deployment
+        run: |
+          COMMIT=$(git rev-parse --short HEAD)
+          echo "expecting commit: $COMMIT"
+          for i in 1 2 3; do
+            BODY=$(curl -s --max-time 20 https://tiek.liangjf.com/)
+            if echo "$BODY" | grep -q "$COMMIT"; then
+              echo "deployed: $COMMIT is live"
+              exit 0
+            fi
+            echo "not yet (attempt $i), waiting..."
+            sleep 60
+          done
+          echo "::error::线上未出现当前提交标记"
+          exit 1

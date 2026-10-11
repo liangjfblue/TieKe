@@ -1,0 +1,36 @@
+name: TieKe
+options:
+  deploymentTarget:
+    macOS: "15.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
+targets:
+  TieKe:
+    type: application
+    platform: macOS
+    sources:
+      - Sources/TieKe
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.tieke.app
+        INFOPLIST_FILE: Sources/TieKe/Info.plist
+        CODE_SIGNING_ALLOWED: NO
+        SWIFT_STRICT_CONCURRENCY: minimal
+    dependencies:
+      - sdk: ScreenCaptureKit.framework
+      - sdk: Vision.framework
+      - sdk: Carbon.framework
+      - sdk: libsqlite3.tbd
+  TieKeTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests
+    dependencies:
+      - target: TieKe
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.tieke.app.tests
+        CODE_SIGNING_ALLOWED: NO

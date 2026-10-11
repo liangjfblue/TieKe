@@ -1,0 +1,13 @@
+.DS_Store
+.build/
+build/
+DerivedData/
+*.xcodeproj/
+*.xcuserstate
+
+# 开发阶段文档与本地配置（不入库）
+.scratch/
+AGENTS.md
+CONTEXT.md
+docs/
+*.profraw

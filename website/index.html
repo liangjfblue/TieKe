@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>贴刻 — macOS 截图贴图工具</title>
+<!--
+方向契约（seed f341bde6 · 键帽浮雕 Keycap Relief · 用户已锁定）
+THESIS: 整个官网是一枚放大的键帽——每个功能都是一次按键，按下即截图。
+  拒绝品类默认的"白底居中 hero + 三卡功能表"，让机械键盘的实体感承载全部叙事。
+OWN-WORLD: 米白 PBT 磨砂键帽面 (#f4f2ed)，炭黑刻字 (#1a1c20)，贴刻蓝染料 (#2f6bff)，
+  定位板铝灰 (#b8bdc7)。键帽用双层 box-shadow 做真实物理高度（顶面亮、侧壁暗、落影深）；
+  按下 = translateY + 阴影收紧，是全世界唯一的交互隐喻。发丝定位板线做分栏。
+  等宽字（SF Mono 栈）用于一切快捷键，像键帽侧壁副刻。
+STORY: 访客 3 秒明白"按 ⌘⇧2 → 截图变贴图"，沿键帽下压滚动读完 6 个功能区，
+  每区一个可按的键帽演示，最后被"下载"这枚最大的键接住。
+FIRST VIEWPORT: 左侧 62%：巨幅 ⌘⇧2 双联键帽斜俯视（纯 CSS 3D），键面刻主标题
+  "贴刻 免费截图工具"，⌘⇧2 键可按（下陷 2px + 咔哒阴影），按住时演示压暗+选区效果。
+  右侧 38%：封面插画作为一张"贴上去的实物"——白纸边、微旋转、单图钉，压在键帽世界上。
+  主下载按钮是最大的键：Esc 键比例，蓝染料热升华字。
+FORM: new-work 骰子分配 assigned（无补抽），代码主导（buildPath: code）。
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
+-->
+<style>
+  :root {
+    /* 键帽世界色板 */
+    --cap-top: #f6f4ef;        /* PBT 键帽顶面 */
+    --cap-side: #ddd9d0;       /* 键帽侧壁 */
+    --cap-leg: #c9c4b8;        /* 键帽落影深处 */
+    --plate: #e9e6df;          /* 定位板铝 */
+    --ink: #1a1c20;            /* 炭黑刻字 */
+    --ink-2: #565b64;          /* 次级刻字 */
+    --dye: #2f6bff;            /* 贴刻蓝（热升华） */
+    --dye-deep: #1e4fd6;       /* 蓝按下 */
+    --bg: #edeae3;             /* 页面地面 */
+    --hairline: #c9c4b8;       /* 发丝定位板线 */
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+    color: var(--ink); background: var(--bg); line-height: 1.65;
+    /* 定位板孔阵肌理：极淡的点阵，像键帽之间的板孔 */
+    background-image: radial-gradient(circle at 1px 1px, rgba(26,28,32,.045) 1px, transparent 0);
+    background-size: 22px 22px;
+  }
+  ::selection { background: var(--dye); color: #fff; }
+  .wrap { max-width: 1140px; margin: 0 auto; padding: 0 28px; }
+
+  /* ============ 键帽组件 ============ */
+  .key {
+    display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+    background: linear-gradient(180deg, #fbfaf7 0%, var(--cap-top) 55%, #ece9e2 100%);
+    border: 1px solid #d6d1c6; border-radius: 14px;
+    box-shadow:
+      inset 0 2px 0 rgba(255,255,255,.9),
+      inset 0 -3px 0 var(--cap-side),
+      0 4px 0 var(--cap-side),
+      0 9px 14px rgba(26,28,32,.16);
+    color: var(--ink);
+    user-select: none; cursor: pointer;
+    transition: transform .07s ease-out, box-shadow .07s ease-out;
+  }
+  .key:active, .key.pressed {
+    transform: translateY(4px);
+    box-shadow:
+      inset 0 2px 0 rgba(255,255,255,.7),
+      inset 0 -1px 0 var(--cap-side),
+      0 0 0 var(--cap-side),
+      0 2px 5px rgba(26,28,32,.18);
+  }
+  .key.dye { background: linear-gradient(180deg, #4a80ff 0%, var(--dye) 55%, var(--dye-deep) 100%); border-color: var(--dye-deep); color: #fff;
+    box-shadow: inset 0 2px 0 rgba(255,255,255,.35), inset 0 -3px 0 var(--dye-deep), 0 4px 0 var(--dye-deep), 0 9px 16px rgba(47,107,255,.35); }
+  .key.dye:active, .key.dye.pressed { box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 0 0 var(--dye-deep), 0 2px 6px rgba(47,107,255,.4); }
+  .kbd { font-family: var(--mono); font-weight: 600; letter-spacing: .02em; }
+
+  /* ============ 导航：定位板横梁 ============ */
+  nav {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(237,234,227,.92); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--hairline);
+  }
+  nav .wrap { display: flex; align-items: center; height: 64px; gap: 30px; }
+  .logo { font-weight: 800; font-size: 20px; letter-spacing: .04em; }
+  .logo em { color: var(--dye); font-style: normal; }
+  nav a.link { color: var(--ink-2); text-decoration: none; font-size: 15px; }
+  nav a.link:hover { color: var(--ink); }
+  nav .spacer { flex: 1; }
+  .gh { display: flex; align-items: center; padding: 6px; border-radius: 8px; }
+  .gh:hover { background: rgba(26,28,32,.06); }
+  nav .cta {
+    color: #fff; background: var(--dye); padding: 9px 20px; border-radius: 10px;
+    font-weight: 700; text-decoration: none;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.35), inset 0 -2px 0 var(--dye-deep), 0 3px 0 var(--dye-deep);
+    transition: transform .07s ease-out, box-shadow .07s ease-out;
+  }
+  nav .cta:active { transform: translateY(3px); box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 0 0 var(--dye-deep); }
+
+  /* ============ 首屏 ============ */
+  header { padding: 56px 0 96px; overflow: hidden; }
+  .hero { display: grid; grid-template-columns: 1.15fr .85fr; gap: 56px; align-items: center; max-width: 1140px; margin: 0 auto; padding: 0 28px; }
+  .hero-keys { display: flex; gap: 18px; justify-content: flex-start; margin-bottom: 34px; }
+  .hero-keys .key { width: 108px; height: 108px; font-family: var(--mono); font-size: 30px; font-weight: 700; }
+  .hero-keys .key small { font-size: 11px; font-weight: 500; color: var(--ink-2); margin-top: 4px; letter-spacing: .08em; }
+  header h1 { font-size: 62px; line-height: 1.12; font-weight: 800; letter-spacing: .01em; margin-bottom: 20px; }
+  header h1 em { color: var(--dye); font-style: normal; }
+  header p.sub { font-size: 19px; color: var(--ink-2); max-width: 480px; margin-bottom: 36px; }
+  .hero-ctas { display: flex; gap: 16px; align-items: stretch; }
+  .btn-key {
+    display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    padding: 18px 40px; border-radius: 16px; text-decoration: none;
+    font-size: 19px; font-weight: 800; letter-spacing: .03em;
+  }
+  .btn-key small { font-size: 12px; font-weight: 500; opacity: .75; font-family: var(--mono); letter-spacing: .05em; }
+  .btn-ghost {
+    display: inline-flex; align-items: center; padding: 18px 30px; border-radius: 16px;
+    text-decoration: none; color: var(--ink); font-weight: 600; font-size: 16px;
+  }
+  .btn-ghost:hover { background: rgba(26,28,32,.05); }
+  .hero-note { margin-top: 20px; font-size: 13.5px; color: #8a8478; }
+  .hero-note a { color: inherit; }
+  .hero-pin { position: relative; }
+  .hero-pin img {
+    width: 100%; display: block; border-radius: 6px;
+    box-shadow: 0 1px 0 rgba(26,28,32,.08), 0 18px 40px rgba(26,28,32,.22);
+    transform: rotate(1.6deg);
+    border: 10px solid #fff;
+  }
+  .hero-pin::before {
+    content: ""; position: absolute; top: -12px; left: 50%; margin-left: -7px; z-index: 2;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #6f9bff, var(--dye) 55%, #1741b3);
+    box-shadow: 0 3px 5px rgba(26,28,32,.35);
+  }
+  .hero-pin figcaption {
+    position: absolute; bottom: -14px; left: 24px;
+    background: var(--ink); color: #f6f4ef; font-family: var(--mono);
+    font-size: 12px; padding: 5px 12px; border-radius: 6px; transform: rotate(-1.2deg);
+    box-shadow: 0 3px 8px rgba(26,28,32,.25);
+  }
+
+  /* ============ 功能区：每个功能一枚键 ============ */
+  section { padding: 110px 0; }
+  .sec-head { max-width: 640px; margin-bottom: 64px; }
+  .sec-head h2 { font-size: 40px; font-weight: 800; letter-spacing: .01em; margin-bottom: 14px; }
+  .sec-head h2 em { color: var(--dye); font-style: normal; }
+  .sec-head p { font-size: 17px; color: var(--ink-2); }
+  .sec-head .kbd { font-size: .82em; background: rgba(26,28,32,.06); border-radius: 6px; padding: 2px 8px; border-bottom: 2px solid var(--cap-side); }
+
+  /* 键位行：图标键 + 文案的横向键组 */
+  .keyrow { display: grid; grid-template-columns: 96px 1fr; gap: 28px; align-items: start; padding: 26px 0; border-bottom: 1px solid var(--hairline); }
+  .keyrow:last-child { border-bottom: none; }
+  .keyrow .key { width: 96px; height: 96px; font-size: 34px; pointer-events: none; }
+  .keyrow h3 { font-size: 19px; font-weight: 700; margin: 8px 0 6px; }
+  .keyrow h3 .kbd { font-size: .78em; color: var(--dye); background: rgba(47,107,255,.08); border-bottom: 2px solid rgba(47,107,255,.35); border-radius: 5px; padding: 2px 7px; }
+  .keyrow p { color: var(--ink-2); font-size: 15.5px; max-width: 58ch; }
+
+  /* 标注工具：一排可按的键帽 */
+  .toolkeys { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 44px; }
+  .toolkey { text-align: center; }
+  .toolkey .key { width: 88px; height: 88px; font-size: 36px; }
+  .toolkey .key svg { width: 38px; height: 38px; stroke: var(--ink); }
+  .toolkey figcaption { margin-top: 12px; font-size: 13.5px; color: var(--ink-2); }
+  .toolkey figcaption .kbd { color: var(--dye); font-weight: 700; }
+
+  /* 快捷键表：副刻面板 */
+  .panel {
+    background: var(--cap-top); border: 1px solid #d6d1c6; border-radius: 18px;
+    box-shadow: inset 0 2px 0 rgba(255,255,255,.9), 0 6px 0 var(--cap-side), 0 14px 26px rgba(26,28,32,.12);
+    padding: 14px 40px;
+  }
+  .panel table { width: 100%; border-collapse: collapse; }
+  .panel td { padding: 13px 8px; font-size: 15.5px; border-bottom: 1px solid rgba(201,196,184,.5); }
+  .panel tr:last-child td { border-bottom: none; }
+  .panel td:first-child { color: var(--ink-2); width: 30%; }
+  .panel td.k { font-family: var(--mono); font-weight: 600; color: var(--dye); white-space: nowrap; }
+  .panel td.k i { font-style: normal; color: var(--cap-leg); margin: 0 8px; }
+
+  /* 数据区： engrave 风格 */
+  .engrave { text-align: center; max-width: 680px; margin: 0 auto; }
+  .engrave code {
+    display: inline-block; margin-top: 28px; font-family: var(--mono); font-size: 15px;
+    background: var(--ink); color: #e8e4da; padding: 14px 26px; border-radius: 12px;
+    box-shadow: inset 0 2px 6px rgba(0,0,0,.45), 0 1px 0 rgba(255,255,255,.6);
+  }
+
+  /* 安装步骤：数字键排 */
+  .steps { counter-reset: step; }
+  .step { display: grid; grid-template-columns: 72px 1fr; gap: 26px; align-items: start; padding: 22px 0; border-bottom: 1px solid var(--hairline); }
+  .step:last-child { border-bottom: none; }
+  .step .key { width: 72px; height: 72px; font-family: var(--mono); font-size: 26px; font-weight: 800; pointer-events: none; }
+  .step h3 { font-size: 17px; font-weight: 700; margin: 6px 0 4px; }
+  .step p { color: var(--ink-2); font-size: 15px; }
+
+  footer { border-top: 1px solid var(--hairline); padding: 40px 0; text-align: center; color: #8a8478; font-size: 13.5px; }
+  footer .kbd { font-family: var(--mono); }
+
+  @media (max-width: 920px) {
+    .hero { grid-template-columns: 1fr; gap: 48px; }
+    header h1 { font-size: 44px; }
+    .hero-keys .key { width: 88px; height: 88px; font-size: 24px; }
+    section { padding: 80px 0; }
+    .sec-head h2 { font-size: 32px; }
+    .hero-pin { max-width: 440px; }
+    /* 副刻面板窄屏：每行两张卡（场景+组），快捷键行内换行 */
+    .panel { padding: 8px 22px; }
+    .panel tr { display: block; padding: 12px 0; border-bottom: 1px solid rgba(201,196,184,.5); }
+    .panel tr:last-child { border-bottom: none; }
+    .panel td { display: inline-block; border: none; padding: 4px 10px 4px 0; }
+    .panel td:first-child { display: block; width: auto; font-size: 13px; letter-spacing: .06em; }
+    .panel td.k { font-size: 15px; }
+    .panel td:nth-child(4), .panel td:nth-child(5) { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+    html { scroll-behavior: auto; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <span class="logo">贴<em>刻</em></span>
+    <a class="link" href="#features">功能</a>
+    <a class="link" href="#shortcuts">快捷键</a>
+    <a class="link" href="#install">安装</a>
+    <span class="spacer"></span>
+    <a class="gh" href="https://github.com/liangjfblue/TieKe" target="_blank" rel="noopener" aria-label="GitHub 项目">
+      <svg width="22" height="22" viewBox="0 0 16 16" fill="#1a1c20" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8"/></svg>
+    </a>
+    <a class="cta" href="#download">下载</a>
+  </div>
+</nav>
+
+<header>
+  <div class="hero">
+    <div>
+      <div class="hero-keys" aria-hidden="true">
+        <div class="key">⌘<small>COMMAND</small></div>
+        <div class="key">⇧<small>SHIFT</small></div>
+        <div class="key dye" id="heroKey">2<small>SNAP</small></div>
+      </div>
+      <h1>贴刻 免费<em>截图工具</em><br>按下即<em>贴图</em></h1>
+      <p class="sub">⌘⇧2 按下，框选的区域立刻变成一枚钉在桌面上的贴图——标注、识字、重启不丢，全部在本机完成。</p>
+      <div class="hero-ctas" id="download">
+        <a class="btn-key key dye" href="https://github.com/liangjfblue/TieKe/releases/latest/download/TieKe-1.0.0.dmg">下载 贴刻<small>DMG · 469 KB</small></a>
+        <a class="btn-ghost" href="https://github.com/liangjfblue/TieKe/releases">全部版本 ↗</a>
+      </div>
+      <p class="hero-note">免费 · macOS 15+ (Apple Silicon) · 无网络依赖 · <a href="#install">首次打开说明</a></p>
+    </div>
+    <figure class="hero-pin">
+      <img src="assets/cover.jpg" alt="贴刻：在屏幕上框选画面，钉到桌面临时对照">
+      <figcaption>pinned · ⌘⇧2</figcaption>
+    </figure>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>每个功能，<em>都是一次按键</em></h2>
+      <p>六种标注、撤销重做、样式实时——全部长在按键上，手不用离开键盘去够菜单。</p>
+    </div>
+
+    <div class="keyrow">
+      <div class="key" aria-hidden="true">📌</div>
+      <div>
+        <h3>截图即贴图 <span class="kbd">⌘⇧2</span></h3>
+        <p>按下即截：选区外自动压暗，右下角实时尺寸。回车，选区立刻成为置顶贴图——拖边调整、整体移动，不挡事也不丢。</p>
+      </div>
+    </div>
+    <div class="keyrow">
+      <div class="key" aria-hidden="true">🔍</div>
+      <div>
+        <h3>本机识字 <span class="kbd">⇧C</span></h3>
+        <p>Vision 引擎离线识别贴图上的文字，一键复制全部结果。识别失败不影响贴图使用，关闭贴图自动取消任务。</p>
+      </div>
+    </div>
+    <div class="keyrow">
+      <div class="key" aria-hidden="true">↩︎</div>
+      <div>
+        <h3>重启恢复 <span class="kbd">⌘Q</span></h3>
+        <p>贴图位置、大小、标注、识字结果全部落盘。退出应用再打开，一切还在原来的地方，像从没关过。</p>
+      </div>
+    </div>
+
+    <div class="sec-head" style="margin-top:88px; margin-bottom:0;">
+      <h2>标注，<em>画在截图上</em></h2>
+      <p>不用先进编辑器——框选完直接画。贴图、复制、保存，全都带着标注走。</p>
+    </div>
+    <div class="toolkeys">
+      <figure class="toolkey">
+        <div class="key" role="img" aria-label="箭头工具"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19L19 5M19 5v8M19 5h-8"/></svg></div>
+        <figcaption>箭头 <span class="kbd">A</span></figcaption>
+      </figure>
+      <figure class="toolkey">
+        <div class="key" role="img" aria-label="文字工具"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M4 6V4h16v2M12 4v16M8 20h8"/></svg></div>
+        <figcaption>文字 <span class="kbd">T</span></figcaption>
+      </figure>
+      <figure class="toolkey">
+        <div class="key" role="img" aria-label="马赛克工具"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 3h4v4H3zM10 3h4v4h-4zM17 3h4v4h-4zM3 10h4v4H3zM17 10h4v4h-4zM3 17h4v4H3zM10 17h4v4h-4zM17 17h4v4h-4z"/></svg></div>
+        <figcaption>马赛克 <span class="kbd">M</span></figcaption>
+      </figure>
+      <figure class="toolkey">
+        <div class="key" role="img" aria-label="聚光灯工具"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></div>
+        <figcaption>聚光灯 <span class="kbd">S</span></figcaption>
+      </figure>
+      <figure class="toolkey">
+        <div class="key" role="img" aria-label="放大镜工具"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><circle cx="10" cy="10" r="6"/><path d="M14.5 14.5L21 21"/></svg></div>
+        <figcaption>放大镜 <span class="kbd">Z</span></figcaption>
+      </figure>
+      <figure class="toolkey">
+        <div class="key" role="img" aria-label="方框工具"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2"><rect x="4" y="6" width="16" height="12" rx="1"/></svg></div>
+        <figcaption>方框 <span class="kbd">G</span></figcaption>
+      </figure>
+      <figure class="toolkey">
+        <div class="key" role="img" aria-label="撤销"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></div>
+        <figcaption>撤销 <span class="kbd">⌘Z</span></figcaption>
+      </figure>
+    </div>
+    <p style="margin-top:32px; color:var(--ink-2); font-size:15px;">文字的字号、颜色、加粗、底色；聚光灯的暗度与形状；放大镜的倍数——<strong style="color:var(--ink)">改一处，全部即时生效</strong>，包括已经画上去的。</p>
+  </div>
+</section>
+
+<section id="shortcuts" style="background:var(--plate); border-top:1px solid var(--hairline); border-bottom:1px solid var(--hairline); background-image:radial-gradient(circle at 1px 1px, rgba(26,28,32,.05) 1px, transparent 0); background-size:22px 22px;">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>副刻<em>键位表</em></h2>
+      <p>像键帽侧壁的副刻——重度使用者的全部秘密，都在这一面板。</p>
+    </div>
+    <div class="panel">
+      <table>
+        <tr><td>全局</td><td class="k">⌘⇧2</td><td>截图并贴图</td><td class="k">⌃⌥2</td><td>从剪贴板贴图</td></tr>
+        <tr><td>全局</td><td class="k">⌃⌥3</td><td>截图并复制</td><td class="k">⌃⌥4</td><td>截图并保存</td></tr>
+        <tr><td>框选中</td><td class="k">A T M S Z G</td><td>切换标注工具</td><td class="k">⌘Z / ⌘⇧Z</td><td>撤销 / 重做</td></tr>
+        <tr><td>框选中</td><td class="k">↩︎</td><td>确认贴图</td><td class="k">⌘C <i>·</i> ⌘S</td><td>复制 <i>·</i> 保存</td></tr>
+        <tr><td>贴图上</td><td class="k">␣</td><td>打开标注</td><td class="k">⇧C</td><td>复制识字结果</td></tr>
+        <tr><td>所有界面</td><td class="k">ESC</td><td>取消 / 关闭</td><td class="k">⌘⇧2</td><td>再来一张</td></tr>
+      </table>
+    </div>
+    <p style="margin-top:22px; font-size:13.5px; color:#8a8478;">组合键被其他应用占用时，菜单栏图标会提示哪些注册失败。</p>
+  </div>
+</section>
+
+<section id="data">
+  <div class="wrap engrave">
+    <h2 style="font-size:40px; font-weight:800; margin-bottom:14px;">数据只留在<em style="color:var(--dye); font-style:normal">你的电脑</em></h2>
+    <p style="color:var(--ink-2); font-size:17px;">没有账号，没有云同步，没有统计上报。截图和索引全部存放在本机目录，随时可查可备份。</p>
+    <code>~/Library/Application Support/TieKe/</code>
+  </div>
+</section>
+
+<section id="install" style="padding-top:0;">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>三步<em>开始</em></h2>
+      <p>下载 DMG → 拖入应用程序 → 授予屏幕录制权限。</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="key" aria-hidden="true">1</div>
+        <div><h3>下载安装</h3><p>点击「下载 贴刻」获取 DMG，打开后把 贴刻 拖入「应用程序」。</p></div>
+      </div>
+      <div class="step">
+        <div class="key" aria-hidden="true">2</div>
+        <div><h3>首次打开</h3><p>应用未公证：右键点击 → 打开 → 再点「打开」，一次性确认。</p></div>
+      </div>
+      <div class="step">
+        <div class="key" aria-hidden="true">3</div>
+        <div><h3>授权截屏</h3><p>系统设置 → 隐私与安全性 → 屏幕录制，勾选 贴刻。之后菜单栏见。</p></div>
+      </div>
+      <div class="step">
+        <div class="key dye" aria-hidden="true">⏎</div>
+        <div><h3>按下 ⌘⇧2</h3><p>框选一块屏幕，回车——你的第一张贴图已经钉在桌面上了。</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    © 2026 贴刻 · MIT 开源 · <span class="kbd">⌘⇧2</span> 再见
+  </div>
+</footer>
+
+<script>
+  // 咔哒声反馈：按下任意 .key 时短暂加 pressed 态（触摸/辅助触发也能看到下陷）
+  document.querySelectorAll('a.key').forEach(k => {
+    k.addEventListener('click', () => {
+      k.classList.add('pressed');
+      setTimeout(() => k.classList.remove('pressed'), 120);
+    });
+  });
+  // 首屏 2 键：循环自按，演示"按下即贴图"
+  const heroKey = document.getElementById('heroKey');
+  if (heroKey && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    setInterval(() => {
+      heroKey.classList.add('pressed');
+      setTimeout(() => heroKey.classList.remove('pressed'), 260);
+    }, 3400);
+  }
+</script>
+</body>
+</html>
